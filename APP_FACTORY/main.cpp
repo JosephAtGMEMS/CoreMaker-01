@@ -32,6 +32,7 @@
 #include "FATFileSystem.h"
 #include "DebounceIn.h"
 #include "lightEffect.hpp"
+#include "factoryConfig.h"
 
 
 using namespace CMC;
@@ -65,7 +66,12 @@ int GetSwitchSelect();
 
 int main()
 {
-    printf("\nMbed OS version - %d.%d.%d\n\n", MBED_MAJOR_VERSION, MBED_MINOR_VERSION, MBED_PATCH_VERSION);
+    printf("\nMbed OS version - %d.%d.%d\nFactory Image V%d.%d\n\n",
+	   MBED_MAJOR_VERSION,
+	   MBED_MINOR_VERSION,
+	   MBED_PATCH_VERSION,
+	   FACTORY_VERSION_MAJOR,
+	   FACTORY_VERSION_MINOR);
 
     serial.connect();
     serial.attach(SerialReceiveISR);
