@@ -2,31 +2,47 @@
 #include "USBSerial.h"
 #include "helloWorldConfig.h"
 
-#define UART_EVENT      (1UL << 25)
+#define EVENT_CMDPORT      (1UL << 25)
 
-USBSerial serial(false);
+static USBSerial cmdPort(false);
+static BufferedSerial debugPort(CONSOLE_TX, CONSOLE_RX);
 EventFlags mainEvent("mainEvent");
 
-void SerialReceiveISR()
+void CmdPortReceiveISR()
 {
-    mainEvent.set(UART_EVENT);
+    mainEvent.set(EVENT_CMDPORT);
 }
 
-void onSerialReceived()
+// Task with blocking event waiting
+void onCmdPortReceived()
 {
   char serialRxBuf[1];
 
-  while(serial.readable()){
-    serial.read(serialRxBuf, 1);
-    printf("%c", serialRxBuf[0]);
+  while(true){
+    uint32_t flags_read = mainEvent.wait_any(EVENT_CMDPORT);
+
+    if(flags_read & EVENT_CMDPORT == 0) continue;
+    
+    while(cmdPort.readable()){
+      cmdPort.read(serialRxBuf, 1);
+      debugPort.write(serialRxBuf, 1);
+    }
   }
-  //The "\n" will trigger the actual output
-  printf("@(%p)\n", ThisThread::get_id());
+}
+
+// Task with blocking read
+void onDebugPortReceived(){
+  char buff[MBED_CONF_DRIVERS_UART_SERIAL_RXBUF_SIZE];
+  while(true){
+    int n = debugPort.read(&buff, MBED_CONF_DRIVERS_UART_SERIAL_RXBUF_SIZE);
+    cmdPort.write(&buff, n);
+  }
 }
 
 int main()
 {
   uint32_t flags_read = 0;
+  Thread cmdPortThread, debugPortThread;
 
   printf("\nMbed OS version - %d.%d.%d\n\nHello World! (V%d.%d)\n",
 	 MBED_MAJOR_VERSION,
@@ -35,21 +51,20 @@ int main()
 	 HELLOWORLD_VERSION_MAJOR,
 	 HELLOWORLD_VERSION_MINOR);
 
-  printf("Starting in context %p\n", ThisThread::get_id());
-  serial.connect();
-  serial.attach(SerialReceiveISR);
-
-  while(true){
-    flags_read = mainEvent.wait_any(UART_EVENT);
-    printf("(%p) Got: 0x%08lx\n", ThisThread::get_id(), flags_read);
-    if(flags_read & UART_EVENT)
-      onSerialReceived();
+  printf("(%p) main() starting\n", ThisThread::get_id());
+  
+  cmdPort.connect();
+  cmdPort.attach(CmdPortReceiveISR);
+  
+  if(debugPort.is_blocking() == false){
+    printf("Set debug port to blocking mode.\n");
+    debugPort.set_blocking(true);
   }
 
-  //Thread worker_thread;
-  //
-  //worker_thread.start(mbed::callback(onSerialReceived));
-  //
-  //// Wait for the thread to terminate
-  //worker_thread.join();
+  cmdPortThread.start(mbed::callback(onCmdPortReceived));
+  debugPortThread.start(mbed::callback(onDebugPortReceived));
+
+  // Wait for the thread to terminate
+  cmdPortThread.join();
+  debugPortThread.join();
 }
